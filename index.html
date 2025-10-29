@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>자유연상 분석 Tool</title>
+  <style>
+    :root{ --bg:#f7f9fc;--panel:#ffffff;--muted:#6b7280;--text:#111827;--border:#e5e7eb; --primary:#2563eb;--primary-700:#1d4ed8;--ok:#16a34a;--warn:#f59e0b }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    header{padding:28px 20px;text-align:center}
+    header h1{margin:0;font-size:24px}
+    header p{margin:8px 0 0;color:var(--muted)}
+    .wrap{max-width:1100px;margin:0 auto;padding:0 20px 60px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:0 8px 24px rgba(17,24,39,.06);margin:14px 0}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    label{display:block;margin-bottom:6px;color:var(--muted);font-weight:600}
+    input[type="text"],input[type="number"],select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text)}
+    textarea{min-height:84px;resize:vertical}
+    .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-weight:700;cursor:pointer;transition:.2s}
+    .btn:hover{transform:translateY(-1px);background:var(--primary-700)}
+    .btn.secondary{background:#fff;color:var(--primary);border-color:var(--primary)}
+    .btn.success{background:var(--ok);border-color:var(--ok)}
+    .small{font-size:12px;color:var(--muted)}
+    table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    th,td{text-align:left;padding:10px 12px;background:#fff;border:1px solid var(--border)}
+    th{position:sticky;top:0;background:#f8fafc;z-index:1}
+    tr td:first-child,tr th:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px}
+    tr td:last-child,tr th:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px}
+    .divider{height:1px;background:var(--border);margin:16px 0}
+    .right{display:flex;justify-content:flex-end;gap:10px}
+    .meta{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 10px}
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#eef2ff;border:1px solid #c7d2fe;color:#1e40af;font-size:12px}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .chip{border:1px solid var(--border);border-radius:999px;padding:6px 10px;background:#fff}
+    .hide{display:none}
+    .aware-values{max-height:160px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:8px;background:#fff}
+    .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+    /* 결과 표 열 너비 조정 */
+    table th:nth-child(1),
+    table td:nth-child(1) { width: 230px; }  /* 대표 응답 */
+    table th:nth-child(2),
+    table td:nth-child(2) { width: 120px; }  /* 빈도 */
+    table th:nth-child(3),
+    table td:nth-child(3) { width: 120px; }  /* 비율 */
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🔎 자유연상 분석 Tool</h1>
+    <p>브랜드 보조인지자를 Base로 자유연상 응답을 단어 유사도 기반 1차 분류합니다. 필요시 GPT를 통해 2차 분류합니다.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>데이터 파일 업로드 (XLSX)</label>
+          <input type="file" id="file" accept=".xlsx,.csv,.tsv,.txt" />
+          <div class="small">브라우저 내에서만 처리됩니다. XLSX는 첫 번째 시트를 사용합니다.</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <div>
+          <label>보조인지 열 (단일 선택)</label>
+          <select id="awareCol"></select>
+        </div>
+        <div>
+          <label>자유연상 열 (단일 선택)</label>
+          <select id="faCol"></select>
+        </div>
+      </div>
+
+      <div id="awarePickerCard" class="card hide" style="margin-top:14px">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <label style="margin-bottom:6px;">인지자 값 선택</label>
+            <div style="display:flex; gap:12px; align-items:center; font-size:13px; color:#555;">
+              <label><input type="checkbox" id="chkAwareAllOn" style="margin-right:4px;">전체 선택</label>
+              <label><input type="checkbox" id="chkAwareAllOff" style="margin-right:4px;">전체 해제</label>
+            </div>
+          </div>
+          <div id="awareValues" class="aware-values"></div>
+          <div class="small" id="awareHint"></div>
+          <div class="chips" id="awareSummary" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <div>
+          <label>모름/없음 패턴 (쉼표로 구분)</label>
+          <textarea id="unknowns">모르,몰라,몰름,모름,모릅,모른,모르겠,모룸,몰겠음,없,없음,앖음,없습,글쎄,애매,그냥,뭐지,처음 들어,어려움,어렵,이게 뭐,이게뭔가,생각 안,생각않,생각이 안,생각안남,기억 안,기억않,기억이 안,기억안남, 안떠오름</textarea>
+        </div>
+        <div>
+          <div class="row" style="margin-top:0">
+            <div>
+              <label>유사도 임계값 (0.6–0.95 권장)</label>
+              <input type="number" id="threshold" value="0.8" min="0.5" max="0.99" step="0.01" />
+            </div>
+            <div>
+              <label>모름/없음 유사도 임계값</label>
+              <input type="number" id="unknownTh" value="0.8" min="0.5" max="0.99" step="0.01" />
+            </div>
+          </div>
+          <div class="right" style="margin-top:12px">
+            <button class="btn" id="btnAnalyze">🚀 1차 분류 실행</button>
+            <button class="btn success" id="btnDownloadXLSX" disabled>📥 엑셀로 내려받기 (XLSX)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2차 분석 (GPT 분류) 섹션: 1차 완료 후 활성화 -->
+    <div id="gptSection" class="card hide" aria-disabled="true" style="opacity:.6; pointer-events:none;">
+      <h3 style="margin:0 0 10px">2차 분류 (ChatGPT로 분류하기)</h3>
+      <label for="gptInstruction">분류 지시문 (선택 입력)</label>
+      <textarea id="gptInstruction"></textarea>
+      <div class="right" style="margin-top:12px">
+        <button class="btn secondary" id="btnRunGPT" disabled>🧠 2차 분류 실행</button>
+      </div>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script>
+  // ====== OpenAI 프록시/모델 ======
+  const AI_PROXY_PATH = "https://branding1-team-server.vercel.app/api/ai-index";
+  const TEAM_TOKEN     = "Branding1team_2025";
+  const OPENAI_MODEL   = "gpt-4o-mini";
+  
+  // ---------- 파일 로드 ----------
+  async function readAsArrayBuffer(file){
+    return await new Promise((res, rej)=>{const r=new FileReader(); r.onerror=()=>rej(r.error); r.onload=()=>res(r.result); r.readAsArrayBuffer(file)})
+  }
+  async function parseInput(file){
+    const name=file.name.toLowerCase()
+    const buf=await readAsArrayBuffer(file)
+    if(name.endsWith('.xlsx')){
+      const wb=XLSX.read(buf, {type:'array'})
+      const ws=wb.Sheets[wb.SheetNames[0]]
+      const rows=XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''})
+      const header=(rows[0]||[]).map(String)
+      const data=rows.slice(1)
+      return {header,data}
+    } else {
+      const txt=new TextDecoder('utf-8').decode(buf)
+      return parseAnyDelimited(txt)
+    }
+  }
+
+  // ---------- 다중 구분자 파서 (", ; | \t") ----------
+  function parseAnyDelimited(text){
+    const seps=new Set([',',';','|','\t'])
+    const rows=[]; let i=0, field='', row=[], inQ=false
+    const pushField=()=>{row.push(field); field=''}; const pushRow=()=>{rows.push(row); row=[]}
+    while(i<text.length){
+      const c=text[i]; const n=text[i+1]
+      if(inQ){
+        if(c==='"' && n==='"'){field+='"'; i+=2; continue}
+        if(c==='"'){inQ=false; i++; continue}
+        field+=c; i++; continue
+      } else {
+        if(c==='"'){inQ=true; i++; continue}
+        if(c==='\r'){i++; continue}
+        if(c==='\n'){pushField(); pushRow(); i++; continue}
+        if(seps.has(c)){pushField(); i++; continue}
+        field+=c; i++; continue
+      }
+    }
+    pushField(); if(row.length) pushRow()
+    const header=(rows[0]||[]).map(String)
+    const data=rows.slice(1)
+    return {header, data}
+  }
+
+  // ---------- 유사도 (한글 자모 고려) ----------
+  function containsHangul(s){return /[가-힣]/.test(s)}
+  function decomposeHangul(s){
+    const CHO=["ᄀ","ᄁ","ᄂ","ᄃ","ᄄ","ᄅ","ᄆ","ᄇ","ᄈ","ᄉ","ᄊ","ᄋ","ᄌ","ᄍ","ᄎ","ᄏ","ᄐ","ᄑ","ᄒ"]
+    const JUNG=["ᅡ","ᅢ","ᅣ","ᅤ","ᅥ","ᅦ","ᅧ","ᅨ","ᅩ","ᅪ","ᅫ","ᅬ","ᅭ","ᅮ","ᅯ","ᅰ","ᅱ","ᅲ","ᅳ","ᅴ","ᅵ"]
+    const JONG=["","ᆨ","ᆩ","ᆪ","ᆫ","ᆬ","ᆭ","ᆮ","ᆯ","ᆰ","ᆱ","ᆲ","ᆳ","ᆴ","ᆵ","ᆶ","ᆷ","ᆸ","ᆹ","ᆺ","ᆻ","ᆼ","ᆽ","ᆾ","ᆿ","ᇀ","ᇁ","ᇂ"]
+    const out=[]; for(const ch of s){const code=ch.charCodeAt(0); if(code>=0xAC00 && code<=0xD7A3){const i=code-0xAC00; const c=Math.floor(i/588); const v=Math.floor((i%588)/28); const t=i%28; out.push(CHO[c],JUNG[v],JONG[t])} else out.push(ch)}
+    return out
+  }
+  function lcs(a,b){const n=a.length,m=b.length; const dp=new Array(n+1).fill(0).map(()=>new Array(m+1).fill(0)); for(let i=1;i<=n;i++) for(let j=1;j<=m;j++) dp[i][j]= a[i-1]===b[j-1]? dp[i-1][j-1]+1 : Math.max(dp[i-1][j],dp[i][j-1]); return dp[n][m]}
+  function baseSim(a,b){a=(a||'').trim().toLowerCase(); b=(b||'').trim().toLowerCase(); if(!a && !b) return 1; const l=lcs(a,b); return l/Math.max(a.length,b.length,1)}
+  function jamoSim(a,b){const x=decomposeHangul((a||'').toLowerCase()), y=decomposeHangul((b||'').toLowerCase()); const n=Math.max(x.length,y.length)||1; let m=0; for(let i=0;i<n;i++) if(x[i]===y[i]) m++; return m/n}
+  function calcSim(a,b){a=(a??'').toString(); b=(b??'').toString(); if(Math.abs(a.length-b.length)>=2) return 0; const base=baseSim(a,b); if(containsHangul(a+b)){return Math.max(base,jamoSim(a,b))} return base}
+
+  function normalizeText(t){return (typeof t==='string'?t:'').trim().toLowerCase()}
+  function isUnknownResponse(t, patterns, th){ if(!t||typeof t!=='string') return true; const x=normalizeText(t); if(!x) return true; if(patterns.some(p=>x.includes(p))) return true; return patterns.some(p=>calcSim(x,p)>=th) }
+  function clusterResponses(series, th){const n=series.length; const used=new Set(); const clusters=[]; for(let i=0;i<n;i++){if(used.has(i)) continue; const base=series[i]; const cur=[i]; for(let j=i+1;j<n;j++){if(used.has(j)) continue; const s=calcSim(base, series[j]); if(s>=th){cur.push(j); used.add(j)}} clusters.push(cur); used.add(i)} return clusters}
+  function valueCounts(arr){const m=new Map(); arr.forEach(v=>m.set(v,(m.get(v)||0)+1)); return [...m.entries()].sort((a,b)=>b[1]-a[1])}
+  function prepareResults(dataCol, total, clusters){const out=[]; total=Math.max(1,total); for(const cl of clusters){const texts=cl.map(idx=>dataCol[idx]); const vc=valueCounts(texts); const representative=vc[0][0]; const originals=[...new Set(texts)].sort(); const count=texts.length; const ratio=Math.min(100, Math.max(0, count/total*100)); out.push({대표_응답:representative, 응답_빈도:count, 응답_비율:ratio / 100, 클러스터_내_유사응답:originals.join(', ')})} out.sort((a,b)=>Number(b.응답_빈도)-Number(a.응답_빈도)); return out}
+
+  // ---------- 전역 상태 & DOM ----------
+  const $file=document.getElementById('file')
+  const $aware=document.getElementById('awareCol')
+  const $fa=document.getElementById('faCol')
+  const $unknowns=document.getElementById('unknowns')
+  const $threshold=document.getElementById('threshold')
+  const $unknownTh=document.getElementById('unknownTh')
+  const $results=document.getElementById('results')
+  const $btnAnalyze=document.getElementById('btnAnalyze')
+  const $btnXLSX=document.getElementById('btnDownloadXLSX')
+  const $btnRunGPT=document.getElementById('btnRunGPT')
+  const $gptSection=document.getElementById('gptSection')
+
+  const $awarePickerCard=document.getElementById('awarePickerCard')
+  const $awareValues=document.getElementById('awareValues')
+  const $awareHint=document.getElementById('awareHint')
+  const $awareSummary=document.getElementById('awareSummary')
+
+  const $gptInstruction=document.getElementById('gptInstruction')
+
+  let parsed=null
+  let lastExportRows=null
+  let lastBrandLabel='결과'
+  let lastAwareCount=0
+  let lastNonBlankCount=0
+  let lastValidList=[] // 1차 유효응답(모름/없음 제외)
+  let lastGptGroups=null
+  let awareMode='nonblank' // 'nonblank' | 'pick'
+
+  function populateSelectors(){
+    if(!parsed) return
+    const opts = parsed.header.map((h,i)=>`<option value="${i}">${escapeHtml(h)}</option>`).join('')
+    $aware.innerHTML=opts; $fa.innerHTML=opts
+  }
+
+  $file.addEventListener('change', async ()=>{
+    resetUI()
+    if(!$file.files.length) return
+    parsed = await parseInput($file.files[0])
+    populateSelectors()
+  })
+
+  $aware.addEventListener('change', ()=>{ renderAwarePicker() })
+
+  function resetUI(){
+    $results.innerHTML='';
+    $btnXLSX.disabled=true; $btnRunGPT.disabled=true;
+    lastExportRows=null; lastAwareCount=0; lastNonBlankCount=0; lastValidList=[]; lastGptGroups=null; hideAwarePicker();
+    // 2차 섹션 비활성화
+    $gptSection.classList.add('hide');
+    $gptSection.setAttribute('aria-disabled','true');
+    $gptSection.style.opacity='.6';
+    $gptSection.style.pointerEvents='none';
+  }
+
+  function hideAwarePicker(){
+    awareMode='nonblank'; $awarePickerCard.classList.add('hide'); $awareValues.innerHTML=''; $awareHint.textContent=''; $awareSummary.innerHTML=''
+  }
+
+  // 전체 선택/해제 체크박스 핸들러
+  function bindAwareMasterChecks() {
+    const $chkOn  = document.getElementById('chkAwareAllOn');
+    const $chkOff = document.getElementById('chkAwareAllOff');
+    if (!$chkOn || !$chkOff) return;
+
+    // 전체 선택
+    $chkOn.addEventListener('change', () => {
+      if ($chkOn.checked) {
+        document.querySelectorAll('.aware-check').forEach(b => b.checked = true);
+        $chkOff.checked = false;              // 상호 배타
+        updateAwareSummary();
+      }
+    });
+
+    // 전체 해제
+    $chkOff.addEventListener('change', () => {
+      if ($chkOff.checked) {
+        document.querySelectorAll('.aware-check').forEach(b => b.checked = false);
+        $chkOn.checked = false;               // 상호 배타
+        updateAwareSummary();
+      }
+    });
+
+    // 개별 체크 변경 시 마스터 체크 상태 동기화(선택 사항이지만 권장)
+    document.addEventListener('change', (e) => {
+      if (!e.target || !e.target.classList) return;
+      if (!e.target.classList.contains('aware-check')) return;
+
+      const boxes = [...document.querySelectorAll('.aware-check')];
+      const total = boxes.length;
+      const onCnt = boxes.filter(b => b.checked).length;
+
+      if (onCnt === total) {
+        $chkOn.checked  = true;
+        $chkOff.checked = false;
+      } else if (onCnt === 0) {
+        $chkOn.checked  = false;
+        $chkOff.checked = true;
+      } else {
+        // 일부만 선택된 경우: 둘 다 해제
+        $chkOn.checked  = false;
+        $chkOff.checked = false;
+      }
+    });
+  }
+
+  function renderAwarePicker(){
+    if(!parsed) return hideAwarePicker()
+    const aIdx = Number($aware.value)
+    if(Number.isNaN(aIdx)) return hideAwarePicker()
+    const awareCol = parsed.data.map(r=> String(r[aIdx]??''))
+    const values = awareCol.map(v=> v.trim()).filter(v=>v!=='')
+    const uniq = [...new Set(values)]
+    if(uniq.length<=1){ // 단일 값: 보조인지(중복) 전체 인지자 처리
+      hideAwarePicker(); awareMode='nonblank';
+      return
+    }
+    // 다값: 사용자 선택 필요
+    awareMode='pick'
+    $awarePickerCard.classList.remove('hide')
+    const counts = new Map(); values.forEach(v=>counts.set(v,(counts.get(v)||0)+1))
+    const items = uniq.sort((a,b)=> (counts.get(b)||0)-(counts.get(a)||0))
+    $awareValues.innerHTML = items.map(v=>{
+      const id='av_'+hashStr(v)
+      const c=counts.get(v)||0
+      return `<label style="display:flex;align-items:center;gap:8px;margin:6px 0">
+        <input type="checkbox" class="aware-check" id="${id}" data-val="${escapeHtml(v)}" checked>
+        <span>${escapeHtml(v)}</span>
+        <span class="small" style="margin-left:auto;color:#6b7280">${c.toLocaleString()}명</span>
+      </label>`
+    }).join('')
+    $awareHint.textContent = '해당 열의 어떤 응답을 인지자로 간주할지 선택하세요.'
+    updateAwareSummary()
+
+    document.getElementById('chkAwareAllOn').checked  = false
+    document.getElementById('chkAwareAllOff').checked = false
+
+    bindAwareMasterChecks()
+  }
+
+  function getSelectedAwareSet(){
+    if(awareMode==='nonblank') return null // null이면 보조인지(중복) 전체
+    const boxes=[...document.querySelectorAll('.aware-check')]
+    const sel = new Set(boxes.filter(b=>b.checked).map(b=> b.getAttribute('data-val').toLowerCase()))
+    return sel
+  }
+
+  function updateAwareSummary(){
+    const sel = getSelectedAwareSet()
+    if(sel===null){$awareSummary.innerHTML='<span class="chip">기준: 보조인지(중복) 전체</span>'; return}
+    if(sel.size===0){$awareSummary.innerHTML='<span class="chip" style="border-color:#fca5a5;color:#b91c1c">선택 0개 (모두 미인지)</span>'; return}
+    $awareSummary.innerHTML = `<span class="chip">선택 ${sel.size}종</span>`
+  }
+
+  document.addEventListener('change',(e)=>{ if(e.target && e.target.classList && e.target.classList.contains('aware-check')) updateAwareSummary() })
+
+  // ---------- 분석 실행 ----------
+  $btnAnalyze.addEventListener('click', ()=>{
+    if(!parsed){alert('먼저 파일을 업로드하세요.'); return}
+    const aIdx = Number($aware.value), fIdx = Number($fa.value)
+    if(Number.isNaN(aIdx)||Number.isNaN(fIdx)){alert('보조 인지 열과 자유연상 열을 각각 하나씩 선택하세요.'); return}
+
+    const patterns = $unknowns.value.split(',').map(s=>normalizeText(s)).filter(Boolean)
+    const th = Number($threshold.value||0.8)
+    const uth = Number($unknownTh.value||0.8)
+
+    const awareCol = parsed.data.map(r=> String(r[aIdx]??''))
+    const faCol = parsed.data.map(r=> String(r[fIdx]??''))
+
+    let isAware=[]; let awareCriterionLabel='보조인지(중복)'
+    if(awareMode==='pick'){
+      const sel = getSelectedAwareSet()
+      if(sel.size===0){ alert('인지자로 간주할 값을 1개 이상 선택하세요.'); return }
+      isAware = awareCol.map(v=> sel.has(v.trim().toLowerCase()))
+      awareCriterionLabel = '선택값('+[...sel].join(', ')+')'
+    } else {
+      isAware = awareCol.map(v=> v.trim()!=='')
+      awareCriterionLabel = '보조인지(중복)'
+    }
+
+    const filtered = faCol.filter((_,i)=> isAware[i])
+    lastAwareCount = isAware.filter(x=>x).length
+    lastNonBlankCount = filtered.filter(v=> v.trim()!=='').length
+
+    const flags = filtered.map(v=> isUnknownResponse(v, patterns, uth))
+    const unknown = filtered.filter((_,i)=>flags[i])
+    const valid = filtered.filter((_,i)=>!flags[i])
+    const total = filtered.length
+
+    let rows=[]
+    if(valid.length){
+      const clusters = clusterResponses(valid, th)
+      rows = prepareResults(valid, total, clusters)
+      if(unknown.length){
+        const ratio = Math.min(100, (unknown.length/total)*100)
+        rows.push({대표_응답:'모름/없음', 응답_빈도:unknown.length, 응답_비율:ratio / 100, 클러스터_내_유사응답:[...new Set(unknown)].join(', ')})
+      }
+    } else {
+      rows=[{대표_응답:'모름/없음', 응답_빈도:String(total), 응답_비율:'100.0%', 클러스터_내_유사응답:'전체 무응답'}]
+    }
+
+    // 결과 영역: 1차 최신 버전으로 덮어쓰기
+    $results.innerHTML=''
+    const card=document.createElement('div'); card.className='card'
+    lastBrandLabel = parsed.header[fIdx] || '결과'
+    const title=document.createElement('h3'); title.textContent=`📌 1차 결과 — ${lastBrandLabel}`; title.style.margin='0 0 8px'
+    card.appendChild(title)
+
+    const meta=document.createElement('div'); meta.className='meta'
+    meta.innerHTML = `<span class="pill">인지 기준: ${escapeHtml(awareCriterionLabel)}</span>`+
+                     `<span class="pill">인지자 수: ${lastAwareCount.toLocaleString()}</span>`;
+    card.appendChild(meta)
+
+    const tbl = document.createElement('div'); tbl.style.overflow='auto'
+    tbl.innerHTML = renderTable(
+      [{key:'대표_응답', label:'대표 응답'},{key:'응답_빈도', label:'빈도'},{key:'응답_비율', label:'비율'},{key:'클러스터_내_유사응답', label:'응답 클러스터'}],
+      rows
+    )
+    card.appendChild(tbl)
+    $results.appendChild(card)
+
+    lastExportRows = rows
+    lastValidList = valid
+    $btnXLSX.disabled = false
+
+    // 2차 섹션 활성화 (1차 완료시)
+    const enable2nd = lastValidList.length>0
+    $btnRunGPT.disabled = !enable2nd
+    $gptSection.classList.toggle('hide', !enable2nd)
+    $gptSection.setAttribute('aria-disabled', enable2nd? 'false':'true')
+    $gptSection.style.opacity = enable2nd? '1' : '.6'
+    $gptSection.style.pointerEvents = enable2nd? 'auto' : 'none'
+
+    window.__awareCriterionLabel = awareCriterionLabel
+  })
+
+  // ---------- OpenAI 2차 분류 ----------
+  $btnRunGPT.addEventListener('click', async () => {
+    if (!lastValidList.length) { alert('먼저 1차 분석을 실행하세요.'); return }
+
+    // 1차 유효응답 빈도 집계
+    const map = new Map(); 
+    lastValidList.forEach(t => map.set(t, (map.get(t) || 0) + 1));
+    const items = [...map.entries()].map(([text, count]) => ({ text, count }));
+
+    // 사용자가 입력한 보조 지시문(선택)
+    const extra = ($gptInstruction.value || '').trim();
+
+    try {
+      $btnRunGPT.disabled = true; 
+      $btnRunGPT.textContent = '분류 중…';
+
+      // 🔄 OpenAI 프록시 호출 (팀 서버가 OpenAI로 전달)
+      const payload = {
+        instruction: extra,
+        items,                 // [{ text, count }]
+        locale: 'ko',
+        model: OPENAI_MODEL,   // "gpt-4o-mini"
+        hint: { brand: lastBrandLabel }
+      };
+      const res = await fetch(AI_PROXY_PATH, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${TEAM_TOKEN}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error('OpenAI 프록시 오류: ' + res.status + ' ' + res.statusText);
+      const data = await res.json();
+      const groups = normalizeGptGroups(data); // { groups:[{label, members:[{text,count}]}] }
+      if (!groups || !groups.length) throw new Error('유효한 그룹 결과가 없습니다.');
+
+      lastGptGroups = groups;
+      renderGptGroups(groups);
+    } catch (err) {
+      alert('2차 분류 실패: ' + (err.message || err));
+    } finally {
+      $btnRunGPT.disabled = false; 
+      $btnRunGPT.textContent = '🧠 2차 분류 실행';
+    }
+  });
+
+  // 모델 출력에서 JSON만 안전하게 추출/파싱
+  function parseGroupsFromText(text) {
+    if (!text) return null;
+    // 1) 코드블록 백틱 제거 등 불순물 제거
+    let cleaned = text.trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+
+    // 2) JSON 파싱 시도
+    try {
+      const obj = JSON.parse(cleaned);
+      // { groups: [{ label, members:[{text,count}]}] } 확인
+      if (obj && Array.isArray(obj.groups)) {
+        // 정규화
+        const out = [];
+        obj.groups.forEach(g => {
+          if (!g || !g.label) return;
+          const members = (g.members || [])
+            .map(m => ({ text: String(m.text || ''), count: Number(m.count || 0) }))
+            .filter(m => m.text);
+          if (members.length) out.push({ label: String(g.label), members });
+        });
+        return out;
+      }
+    } catch (e) {
+      // 3) 실패 시, 중괄호 블록만 추출 후 재시도
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          const obj = JSON.parse(match[0]);
+          if (obj && Array.isArray(obj.groups)) {
+            const out = [];
+            obj.groups.forEach(g => {
+              if (!g || !g.label) return;
+              const members = (g.members || [])
+                .map(m => ({ text: String(m.text || ''), count: Number(m.count || 0) }))
+                .filter(m => m.text);
+              if (members.length) out.push({ label: String(g.label), members });
+            });
+            return out;
+          }
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
+  // ---------- 엑셀(XLSX) 내보내기 ----------
+  $btnXLSX.addEventListener('click', ()=>{
+    if(!lastExportRows){alert('먼저 분석을 실행하세요.'); return}
+
+    const header = [
+      { key:'대표_응답',            label:'대표 응답' },
+      { key:'응답_빈도',            label:'빈도' },
+      { key:'응답_비율',            label:'비율' },
+      { key:'클러스터_내_유사응답',  label:'응답 클러스터' }
+    ];
+    const metaRows = [
+      ['브랜드(자유연상 열)', lastBrandLabel],
+      ['인지 기준', String(window.__awareCriterionLabel||'보조인지(중복)')],
+      ['인지자 수', String(lastAwareCount)],
+      ['',''],
+    ]
+    const ws1 = XLSX.utils.aoa_to_sheet([
+      ...metaRows,
+      header.map(h => h.label),
+      ...lastExportRows.map(r => header.map(h => r[h.key] ?? ''))
+    ])
+    ws1['!cols']=[{wch:20},{wch:12},{wch:12},{wch:60}]
+
+    if(ws1['C6']) ws1['C6'].z = "0.0%";
+    for(let R = 6; ws1[`C${R}`]; R++){ ws1[`C${R}`].z = "0.0%"; }
+
+    const wb = XLSX.utils.book_new()
+    const sheetName1 = safeSheetName(lastBrandLabel)
+    XLSX.utils.book_append_sheet(wb, ws1, sheetName1)
+
+    // 시트2: GPT 2차 분류(있다면)
+    if(lastGptGroups && Array.isArray(lastGptGroups)){
+      const gHeader=['그룹','합계_빈도','구성_예시(최대 5개)','전체_구성원']
+      const gRows = []
+      lastGptGroups.forEach(g=>{
+        const total = g.members.reduce((s,m)=>s+(m.count||0),0)
+        const ex = g.members.slice(0,5).map(m=>m.text).join(', ')
+        const all = g.members.map(m=>`${m.text}:${m.count}`).join(' | ')
+        gRows.push([g.label, total, ex, all])
+      })
+      const ws2 = XLSX.utils.aoa_to_sheet([['GPT 2차 분류 결과','', '', ''], gHeader, ...gRows])
+      ws2['!cols']=[{wch:20},{wch:12},{wch:60},{wch:80}]
+      XLSX.utils.book_append_sheet(wb, ws2, safeSheetName('GPT_2차_분류'))
+    }
+
+    const fname = `${safeFileName(sheetName1)}_자유연상_분석.xlsx`
+    XLSX.writeFile(wb, fname)
+  })
+
+  // ---------- 렌더링 & 유틸 ---------- //
+  function renderTable(columns, rows) {
+    let h = '<table><thead><tr>' +
+      columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('') +
+      '</tr></thead><tbody>';
+    for (const r of rows) {
+      h += '<tr>' +
+        columns.map(c => {
+          let v = r[c.key] ?? '';
+          if (c.key === '응답_비율' && typeof v === 'number') {
+            v = (v * 100).toFixed(1) + '%';
+          }
+          return `<td>${escapeHtml(v)}</td>`;
+        }).join('') +
+        '</tr>';
+    }
+    return h + '</tbody></table>';
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      "\"":"&quot;",
+      "'":"&#39;"
+    }[c]));
+  }
+
+  function safeFileName(s){return String(s||'result').replace(/[^\w가-힣\-_.]+/g,'_').slice(0,100)}
+  function safeSheetName(s){ s=String(s||'Sheet').replace(/[\\\/*\[\]:?]/g,'_'); if(s.length>31) s=s.slice(0,31); if(!s.trim()) s='Sheet'; return s }
+  function hashStr(str){ let h=0; for(let i=0;i<str.length;i++){ h=((h<<5)-h)+str.charCodeAt(i); h|=0 } return Math.abs(h) }
+  </script>
+</body>
+</html>
