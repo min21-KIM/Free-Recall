@@ -119,8 +119,9 @@
 
     <!-- 2차 분석 (GPT 분류) 섹션: 1차 완료 후 활성화 -->
     <div id="gptSection" class="card hide" aria-disabled="true" style="opacity:.6; pointer-events:none;">
-      <h3 style="margin:0 0 10px">2차 분류 (ChatGPT로 분류하기)</h3>
-      <label for="gptInstruction">분류 지시문 (선택 입력)</label>
+      <h3 style="margin:0 0 0px">2차 분류 (ChatGPT로 분류)</h3>
+      <p class="small" style="margin:0 0 20px; color:var(--muted)">※ 1차 분류 결과의 빈도 상위 300개만 2차 분류에 사용되므로 데이터가 많은 경우 원본 응답을 몇차례에 나눠 분류하기 권함</p>
+      <label for="gptInstruction">분류 지시문</label>
       <textarea id="gptInstruction"></textarea>
       <div class="right" style="margin-top:12px">
         <button class="btn secondary" id="btnRunGPT" disabled>🧠 2차 분류 실행</button>
